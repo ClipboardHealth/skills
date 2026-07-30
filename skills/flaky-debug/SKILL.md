@@ -2,7 +2,7 @@
 name: flaky-debug
 description: "Debug and fix flaky Playwright, NestJS, React, and unit tests."
 metadata:
-  version: "1.0.8"
+  version: "1.0.10"
 ---
 
 Phases run in order. Phase 0 is mandatory. Skip a later phase if you already have the information it produces. Phase 3 runs only in fix mode.
@@ -111,6 +111,10 @@ If an existing fix is found, report:
 - Any knowledge-source match required by the organization profile
 
 If no existing fix is found, proceed to Phase 2.
+If an existing fix fully covers the current mechanism, report it and stop.
+If it covers only part of the mechanism, document the covered scope and proceed
+to Phase 2 with a structured residual plan for only the remaining
+evidence-backed work.
 
 ## Phase 2: Produce a plan
 

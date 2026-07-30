@@ -50,9 +50,19 @@ fi
 artifact_id=$(echo "$artifact_json" | jq -r '.id')
 expired=$(echo "$artifact_json" | jq -r '.expired')
 size=$(echo "$artifact_json" | jq -r '.size_in_bytes')
+max_compressed_bytes=$((100 * 1024 * 1024))
+max_report_bytes=$((250 * 1024 * 1024))
 
 if [[ "$expired" == "true" ]]; then
   echo "Error: Artifact has expired and is no longer available." >&2
+  exit 1
+fi
+if [[ ! "$size" =~ ^[0-9]+$ ]]; then
+  echo "Error: Artifact size is not a non-negative integer: ${size}" >&2
+  exit 1
+fi
+if ((size > max_compressed_bytes)); then
+  echo "Error: Artifact is ${size} bytes; maximum allowed compressed size is ${max_compressed_bytes} bytes." >&2
   exit 1
 fi
 
@@ -122,14 +132,47 @@ tmp_zip="$(mktemp "${out_dir}.zip.XXXXXX")"
 extract_dir="$(mktemp -d "${out_dir}.extract.XXXXXX")"
 
 echo "Downloading to a temporary file."
-gh api "repos/${owner}/${repo}/actions/artifacts/${artifact_id}/zip" > "$tmp_zip"
+download_status=0
+gh api "repos/${owner}/${repo}/actions/artifacts/${artifact_id}/zip" |
+  head -c "$((max_compressed_bytes + 1))" > "$tmp_zip" || download_status=$?
+downloaded_size="$(wc -c < "$tmp_zip" | tr -d '[:space:]')"
+if ((downloaded_size > max_compressed_bytes)); then
+  echo "Error: Download exceeded the ${max_compressed_bytes}-byte compressed-size limit." >&2
+  exit 1
+fi
+if ((download_status != 0)); then
+  echo "Error: Artifact download failed with status ${download_status}." >&2
+  exit "$download_status"
+fi
 
-echo "Extracting to a temporary directory."
-unzip -q "$tmp_zip" -d "$extract_dir"
-
-if [[ ! -f "$extract_dir/llm-report.json" ]]; then
+report_entry_count="$(unzip -Z -1 "$tmp_zip" | awk '$0 == "llm-report.json" { count += 1 } END { print count + 0 }')"
+if [[ "$report_entry_count" != "1" ]]; then
   echo "Error: Downloaded artifact does not contain llm-report.json" >&2
   exit 1
+fi
+report_size="$(unzip -l "$tmp_zip" llm-report.json | awk '$NF == "llm-report.json" { print $1; exit }')"
+if [[ ! "$report_size" =~ ^[0-9]+$ ]]; then
+  echo "Error: Could not determine the uncompressed llm-report.json size." >&2
+  exit 1
+fi
+if ((report_size > max_report_bytes)); then
+  echo "Error: llm-report.json is ${report_size} bytes; maximum allowed size is ${max_report_bytes} bytes." >&2
+  exit 1
+fi
+
+echo "Extracting llm-report.json to a temporary directory."
+extract_status=0
+unzip -p "$tmp_zip" llm-report.json |
+  head -c "$((max_report_bytes + 1))" > "$extract_dir/llm-report.json" ||
+  extract_status=$?
+extracted_size="$(wc -c < "$extract_dir/llm-report.json" | tr -d '[:space:]')"
+if ((extracted_size > max_report_bytes)); then
+  echo "Error: Extracted llm-report.json exceeded the ${max_report_bytes}-byte size limit." >&2
+  exit 1
+fi
+if ((extract_status != 0)); then
+  echo "Error: llm-report.json extraction failed with status ${extract_status}." >&2
+  exit "$extract_status"
 fi
 
 printf '%s\n' "$artifact_id" > "$extract_dir/.complete"
