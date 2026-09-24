@@ -3,8 +3,8 @@
 Apply phase of the flaky-debug skill. Takes a plan produced by the planning phase ([`plan-e2e.md`](./plan-e2e.md) or [`plan-fast-path.md`](./plan-fast-path.md), finished by [`plan.md`](./plan.md)) and applies it.
 
 If `organization-profile.md` exists beside this file, read its **Fix and
-handoff additions** and **Knowledge-base close-out** sections before applying
-the fix or declaring the workflow complete.
+handoff additions** before applying the fix. Follow its **Knowledge-base
+close-out** pointer after merge; before then, report that duty as pending.
 
 ## Preflight
 
@@ -16,14 +16,16 @@ more evidence first.
 Before editing, verify the plan is still current:
 
 - The failing commit's code path still exists on the current default branch, or the plan has been adjusted for the current code.
+- No applicable remediation boundary from the
+  [systemic-regression contract](./systemic-regression.md) has activated since
+  the plan was written. If one has, and every same-mechanism sighting predates
+  its evidence-based activation boundary, stop applying and return the plan for
+  the post-boundary recurrence check.
 - The proposed fix targets the diagnosed failure surface, not only the final assertion.
 - The repository and revision named by the plan match the current worktree. If
   the causal owner is another repository or service, stop editing and hand the
   plan to that owner with the target repository, revision, and evidence.
-- Any retry/wait change is safe and idempotent; it must not repeat one-time credentials, duplicate writes, or destructive actions.
-- The retry predicate names the exact transient failure signatures it matches: opaque 5xx yes; 4xx validation no; 429 only with a cap.
-- The retry has a finite attempt or total-call bound, and exhaustion reports the attempts plus the last stdout/stderr/status/body.
-- A retry against a rate-limited or quota-limited dependency such as an identity provider, a 429-emitting API, token minting, one-time credential provisioning, or seed creation states its concurrency cap or call-volume bound. Without one, return to the plan and serialize or cache the operation. A cap does not make a non-idempotent operation safe.
+- Any retry/wait change still meets the applicable [fix-approach requirements](./plan.md#decide-fix-approach). Return to the plan when the evidence or safety bounds changed.
 
 ## Apply the Proposed Fix
 
@@ -69,33 +71,22 @@ Skip this step when the fix is **specific to one test's logic** -- for example a
 
 ## Verification
 
-Run the plan's **Validation plan** commands — including the previously-flaky test, repeated enough times to give reasonable confidence the flake is gone. Lint and type-check touched files as the floor; do not stop there.
+Run the plan's **Validation plan**, exercising the named failure condition and
+its chosen stopping rule. Verification is complete when the specified checks
+pass and the outcome is recorded against those criteria. Report commands,
+counts, before/after reproduction results when available, and residual
+uncertainty. If a check fails or cannot run, record the blocker and revise the
+plan before claiming the fix is verified.
 
 ## Output Format
 
-When documenting the fix in a PR or issue, use this structure. Carry the
-investigation and provenance fields straight over from the plan. Two plan fields
-rename: **Proposed fix** → **Fix** and **Validation plan** → **Validation**.
-**Siblings fixed** lists only corrections actually made; keep unmodified
-**Sibling candidates** separate. Drop **Open questions** after resolving them.
-Add any fields and labels required by the organization profile.
+Use the [plan output schema](./plan.md#plan-output-format) as the single source
+of truth, carrying its investigation and provenance evidence forward. Update
+confidence, diagnostic gaps, default-branch status, and residual risk when
+verification changes them. Apply these differences:
 
-- **Test ID:** if provided in prompt
-- **Agent session ID:** your running session ID to resume if needed
-- **Confidence:** score (1-5) with brief justification
-- **Failure surface:** where the failure first surfaced and why the fix belongs there
-- **Current default-branch status:** whether the failure path still existed when the fix was made
-- **Prior attempts:** carry the plan's complete prior-attempt table and recurrence evidence
-- **Runtime provenance:** observed environment and revision, linked fix revision, deployment evidence, and ancestry result
-- **Symptom:** what failed and where
-- **Why / customer impact:** carry unchanged from the plan
-- **Root cause:** concise technical explanation
-- **Causal chain:** each evidenced link to the terminal cause
-- **Evidence:** artifacts supporting the diagnosis (traces, network, error messages, screenshots as applicable)
-- **Observability to reach 5/5:** carry the remaining diagnostic work, or `N/A -- confidence is 5/5`
-- **Fix:** fix locus and scope: shared setup/CI, backend/service/data, product, test data/harness, assertion/locator, or multiple layers
-- **Handoff:** target repository/service, revision, owner, and evidence when preflight stopped local editing; otherwise `N/A`
-- **Sibling candidates:** candidates identified by the plan but not modified
-- **Siblings fixed:** files where the same anti-pattern was actually corrected (or "N/A -- fix was test-specific")
-- **Validation:** commands and suites run
-- **Residual risk:** what could still be flaky
+- **Proposed fix** becomes **Fix**, describing the changes actually made.
+- **Validation plan** becomes **Validation**, recording the verification outcomes above.
+- **Sibling candidates** retains unmodified candidates; add **Siblings fixed** for confirmed corrections actually made, or `N/A -- fix was test-specific`.
+- Add **Handoff** with the target repository/service, revision, owner, and evidence when preflight stopped local editing; otherwise `N/A`.
+- Remove **Open questions** once resolved, and add fields or labels required by the organization profile.

@@ -11,16 +11,23 @@ Rate your confidence in the root cause on a 1-5 scale. Report this score alongsi
 
 | Score | Meaning             | Criteria                                                                                                                                                                                                                                                           |
 | ----- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **5** | Certain             | Root cause is directly visible in artifacts AND reproduced by inducing it — fault injection in the harness (delay/fail the blamed response or step) or a focused lower-level test that deterministically triggers the race. Without reproduction, the ceiling is 4 |
-| **4** | High confidence     | The chain terminates at an evidenced cause (file/line, config key, or log line) but one intermediate link is inferred rather than observed. An unevidenced terminal cause is a broken chain, capped at 2 (see [Causal Chain](#causal-chain))                       |
+| **5** | Certain             | Root cause is directly visible in artifacts AND reproduced by inducing it — fault injection in the harness (delay/fail the blamed response or step) or a focused lower-level test that deterministically reproduces the cause, including the deterministic-boundary equivalence below. Without qualifying reproduction, the ceiling is 4 |
+| **4** | High confidence     | The chain terminates at an evidenced cause (file/line, config key, or log line), but reproduction is missing or one intermediate link is inferred rather than observed. An unevidenced terminal cause is a broken chain, capped at 2 (see [Causal Chain](#causal-chain))                       |
 | **3** | Moderate confidence | Evidence is consistent with the diagnosis but alternative explanations remain plausible. Flag the alternatives explicitly                                                                                                                                          |
 | **2** | Low confidence      | Limited evidence, mostly reasoning from code patterns rather than observed artifacts. Recommend gathering more data before committing to a fix                                                                                                                     |
 | **1** | Speculative         | No direct evidence for the root cause. The fix is a best guess. Recommend reproducing the failure locally or adding instrumentation before proceeding                                                                                                              |
 
+**Deterministic-boundary equivalence:** for a pure clock, calendar, configuration,
+or literal-threshold defect, a failing artifact plus exact evaluation of the
+named code expression at the captured inputs counts as focused lower-level
+reproduction. Show the before/after values and why the result is deterministic.
+Timestamp correlation or a boundary narrative without that evaluation remains
+capped at 4/5.
+
 Apply the score:
 
 - **If >2:** continue to [Decide Fix Approach](#decide-fix-approach).
-- **If less than 5/5:** the plan must include observability or diagnostic instrumentation relevant to the implicated failure surface that would make the next occurrence's root cause directly visible in artifacts (the artifact half of 5/5; reaching 5/5 additionally requires reproduction per [Causal Chain](#causal-chain)). Include frontend or backend changes only when those layers are part of the causal chain. Scope recommendations to the relevant repositories and services; resolve owners from repository metadata, service catalogs, deployment configuration, or the organization profile rather than assuming the failure belongs to the repo the test lives in.
+- **If less than 5/5:** identify the missing evidence and the work that would obtain it. Propose instrumentation for unobserved causal links and a reproduction experiment when reproduction is missing. When artifacts already establish the complete cause, cite them and specify the reproduction gap; additional instrumentation is unnecessary. Scope diagnostic work to the implicated repositories and services, resolving owners from repository metadata, service catalogs, deployment configuration, or the organization profile.
 - **If confidence is 2 or below:** do not propose a code fix. Instead, recommend specific instrumentation or reproduction steps to raise confidence.
 
 ## Causal Chain
@@ -49,17 +56,17 @@ Use this decision order:
 4. **Test data or harness fix** when the scenario is not user-realistic, the test setup is semantically wrong, or the test needs a deterministic app-ready signal.
 5. **Assertion/locator fix** only when the app state is correct and the selector/assertion is the only broken part.
 
-Before proposing any retry, timeout, or wait change, pass the idempotency check:
+Before proposing a retry, timeout, or wait change, establish these requirements:
 
-- Is the retried operation safe to repeat?
-- Does retrying preserve the same test scenario?
-- Could retrying amplify the root cause, such as rate limits, one-time credentials, duplicate writes, or destructive mutations?
-- Does the retry predicate name the exact transient failure signatures it matches (opaque 5xx yes; 4xx validation no; 429 only with a cap)?
-- Does the plan set a finite attempt or total-call bound, with exhaustion reporting the attempts and last stdout/stderr/status/body?
-- For a rate-limited or quota-limited dependency such as an identity provider, a 429-emitting API, token minting, one-time credentials, or seed creation, does the plan state a concurrency cap or call-volume bound?
-- Is there a deterministic signal to wait on instead of a longer timeout?
+- Repeated operations are idempotent and preserve the same test scenario.
+- Retry predicates identify the exact transient signatures they accept; validation failures remain terminal.
+- Retries have finite attempt or total-call bounds. Exhaustion reports the attempts and last stdout/stderr/status/body.
+- Quota-limited dependencies have a concurrency or call-volume bound that controls amplification. Serialize or cache when necessary; a cap does not make a non-idempotent operation safe.
+- Waits use a deterministic readiness signal when available. A longer timeout needs evidence that the expected operation is healthy and its duration exceeds the existing budget.
 
-If the answer is no or unclear, do not add a retry/wait as the fix. Propose a root-cause fix or instrumentation instead. When a rate-limited or quota-limited dependency has no safe cap, serialize or cache the operation to reduce call volume. Never propose an uncapped retry against such a dependency.
+Apply retry requirements only when an operation is repeated; mark inapplicable
+checks with a reason. If an applicable requirement lacks evidence, propose a
+root-cause fix or diagnostic work to establish it before adding the retry/wait.
 
 Common valid fix types:
 
@@ -96,11 +103,12 @@ Choose **both** if user impact exists _and_ tests are fragile.
 Produce the plan with these fields:
 
 - **Test ID:** if provided in prompt
-- **Agent session ID:** your running session ID to resume if needed
+- **Investigation reference:** a resumable session ID when the agent exposes one;
+  otherwise the durable report, ticket, or run identifier. Never invent a session ID.
 - **Confidence:** score (1-5) with brief justification
 - **Failure surface:** CI/job setup, test setup/auth/data, app bootstrap, user action no-op, backend request, post-success render, assertion/locator, or mixed
 - **Current default-branch status:** whether the failing commit's code path still exists on the current default branch, has already been fixed, or has changed enough that the plan must be adjusted
-- **Prior attempts:** list each prior ticket/PR, what it blamed, what it changed, and the recurrence evidence showing its diagnosis was wrong or incomplete. Use a table with `Prior ticket/PR`, `What it blamed`, `What it changed`, and `Recurrence evidence` columns. If the dossier search found no prior implementation tickets, write `None found` and include the fingerprint-family and exact-test-title searches run.
+- **Prior attempts:** carry the complete Phase 1b table, including each attempt's disposition and supporting evidence. If none exist, include `None found` and the searches run.
 - **Runtime provenance:** when a prior fix or current failure implicates a deployed service, record the observed environment, runtime version or source revision, linked fix revision, deployment evidence, and ancestry result. Do not use merge time as proof that a fix was running.
 - **Symptom:** what failed and where
 - **Why / customer impact:** why this flake needs to be fixed and how the underlying failure or test unreliability could affect customers. Distinguish direct customer impact from indirect reliability, operational, or developer impact; do not fabricate impact.
@@ -108,8 +116,8 @@ Produce the plan with these fields:
 - **Causal chain:** each link from failing assertion to terminal cause with its evidence, or the explicit break point and the observability that would extend it (see [Causal Chain](#causal-chain))
 - **Evidence:** artifacts supporting the diagnosis (traces, network, error messages, screenshots as applicable)
 - **Proposed fix:** fix locus and scope — shared setup/CI, backend/service/data, product, test data/harness, assertion/locator, or multiple layers — with the specific file(s) and the change you would make
-- **Observability to reach 5/5:** required when confidence is less than 5/5. List the telemetry, logging, tracing, reporter, runner, fixture, or other diagnostic changes relevant to the implicated failure surface that would make this flake's root cause directly visible in artifacts next time (reproduction then completes 5/5). Include frontend, backend, or another repository only when the evidence implicates it. Use "N/A -- confidence is 5/5" only for a 5/5 plan.
+- **Observability to reach 5/5:** identify unobserved links and the diagnostic work needed to expose them. When the cause is fully observed, cite the existing evidence and state `No instrumentation gap`. Separately identify missing reproduction and the experiment that would establish it. Use `N/A -- confidence is 5/5` when both are complete.
 - **Sibling candidates:** files that appear to share the same anti-pattern, for the reviewer (or fix.md) to confirm. Or "N/A -- fix is test-specific" if the issue is one-off (see [`fix.md`](./fix.md) for what counts as a structural anti-pattern worth searching for).
-- **Validation plan:** lint/typecheck commands and test commands to run after applying the fix
+- **Validation plan:** the failure-provoking condition, how validation exercises it, commands for the affected test and focused reproduction, and a run count or bounded stopping rule chosen before verification. Prefer a deterministic reproduction that fails before the fix and passes afterward. When reproduction is unavailable, justify the bounded repeat strategy and state the remaining uncertainty. Include relevant lint/typecheck commands.
 - **Open questions:** anything that needs human input before fixing
 - **Residual risk:** what could still be flaky after the fix
