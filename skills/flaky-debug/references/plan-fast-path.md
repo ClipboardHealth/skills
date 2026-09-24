@@ -4,10 +4,12 @@ Diagnosis and planning phase of the flaky-debug skill for service, React compone
 
 Begin this fast path only after completing every mandatory dossier and
 current-code check in `SKILL.md` Phase 1b, including prior-fix searches,
-current-default-branch verification, and recurrence analysis. Use it only when the
-evidence implicates no external service or cross-repository causal chain. At
-that point, the failure information plus the test source is usually sufficient:
-read the evidence, read the code, and plan the fix.
+current-default-branch verification, and recurrence analysis. When the evidence
+implicates an external service or another repository, switch to the shared
+[Causal Chain](./plan.md#causal-chain) investigation with runner, service, and
+dependency evidence, then complete `plan.md`. Otherwise, the failure information
+plus the test source is usually sufficient: read the evidence, read the code,
+and plan the fix.
 
 ## Gather Failure Context
 

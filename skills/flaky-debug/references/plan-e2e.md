@@ -9,14 +9,31 @@ preflight** requirements before using telemetry.
 
 Capture these details first so the investigation is reproducible. If the user hasn't provided them, ask.
 
-- Failing test file and name
-- GitHub Actions run URL to fetch the LLM report
+- Failing test file and name, or workflow/job/step identifier when no test ran
+- GitHub Actions run URL and attempt for CI failures
 - Branch, commit, shard, timestamp, and issue/ticket link when available
 - Whether the failure is one test, a retry-only flake, or a burst across many tests/shards
 
-### Fetch the LLM Report
+For failures before Playwright starts, use complete job logs and the workflow
+source. Skip the reporter-specific sections below; use the CI/setup branch of
+the failure-surface classification and evidence standard, then complete
+[`plan.md`](./plan.md). For local E2E failures, use the local report or trace.
 
-Downloads the `playwright-llm-report` artifact from a GitHub Actions run.
+### Obtain the Report or Trace
+
+Use the failing repository's configured report artifacts. Native Playwright
+HTML reports and traces are sufficient; the custom `playwright-llm-report`
+below is optional. If it is absent, inspect the native report/trace and job logs
+for the same action sequence, errors, requests, screenshots, and retry outcomes.
+Apply the evidence standard below using those artifacts; skip custom JSON-field
+instructions that do not apply. Record evidence gaps when the available
+artifacts lack a required observation.
+
+#### Fetch the optional LLM report
+
+Locates the newest non-expired `playwright-llm-report` artifact from a GitHub
+Actions run. Apply [Phase 0's attempt-provenance check](../SKILL.md#phase-0-verify-investigation-access)
+before using the result, including when the latest attempt is intended.
 
 Resolve the bundled `scripts/` path relative to `SKILL.md`; do not use a target repository's `scripts/` directory.
 
@@ -55,10 +72,10 @@ This classification can change as evidence improves. State the final surface in 
 
 ## Classify the Flake Pattern (E2E)
 
-For the full report schema, field reference, caps, and examples, first read the
-reporter's documentation from the failing repository's installed dependency or
-lockfile-resolved source. Cross-check the report's `schemaVersion` against those
-docs. If matching docs are unavailable, use only fields whose meaning is clear
+When using an LLM report, read the reporter's schema, field reference, caps,
+and examples from the failing repository's installed dependency or
+lockfile-resolved source. Cross-check the report's `schemaVersion` against that
+documentation. If matching docs are unavailable, use only fields whose meaning is clear
 from the artifact and record the schema limitation instead of borrowing docs
 from a different version.
 
@@ -81,6 +98,11 @@ Classify the flake to narrow the search space:
 | **Locator / UX drift**       | Selector is valid but brittle against small UI changes                            | `errors[]` — locator/selector text in error message                                           |
 
 ## Analyze LLM Report
+
+The JSON paths in this section apply to the custom LLM reporter only, after
+checking its schema as described above. With native Playwright artifacts,
+reconstruct the same sequence from trace actions, network activity, console
+output, attachments, and test results.
 
 ### Walk the Timeline
 
@@ -166,13 +188,13 @@ Prefer the timeline view above which interleaves steps with network and console.
 
 Do not propose a fix without concrete artifacts. At minimum, include:
 
-- One **error artifact** — from `tests[].errors[]` (assertion diff, timeout message) or a trace/log entry
+- One **error artifact** — an assertion diff, timeout message, or trace/log entry; in an LLM report, use `tests[].errors[]`
 - One **network or lifecycle artifact**:
-  - If a request was emitted: an instance from `attempts[].network.instances[]` (status, timing, trace ids) joined to its group via `attempts[].network.groups[instance.groupId]` (shape, `failureText`/`wasAborted`, occurrence counts), plus the body via `attempts[].network.bodies[instance.requestBodyRef | instance.responseBodyRef]` when relevant
+  - If a request was emitted: its status, timing, correlation IDs, failure details, and relevant body from the trace or report. In an LLM report, join `attempts[].network.instances[]` to `attempts[].network.groups[instance.groupId]` and resolve payloads through `attempts[].network.bodies[instance.requestBodyRef | instance.responseBodyRef]`
   - If no request was emitted: the step/trace evidence showing the triggering action completed and the expected request/dialog/route transition never started
   - If failure happened before the app action: CI/setup/auth log evidence showing the failing command/service call
-- A **specific code path** that consumed that state — use `tests[].location` to jump to the source
-- When available: **screenshot** from `failureArtifacts.screenshotBase64` showing page state at failure
+- A **specific code path** that consumed that state — use the test's reported source location (`tests[].location` in an LLM report), or the failing workflow/setup command when no test ran
+- When available: a **screenshot** showing page state at failure, from a native attachment or `failureArtifacts.screenshotBase64` in an LLM report
 - When available: a **backend trace** correlated from the failing request's trace or request ID
 - When relevant: **logs/RUM/CI evidence** that confirms whether the issue is app, backend, infra, auth/test-data, or CI tooling
 - A **confidence score** -- see [Confidence Score](./plan.md#confidence-score) in `plan.md` for the 1-5 scale and what to do with it.
